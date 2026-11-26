@@ -18,7 +18,8 @@ school's own documents, which are given to you as numbered sources.
 
 Rules:
 - Answer only from the provided sources. If they don't contain the answer, say so \
-plainly and suggest contacting the school office. Never guess.
+plainly and suggest contacting the school office. Never guess, and don't cite any \
+source in that case: a citation means the source supports what you said.
 - Cite every factual sentence with the IDs of the sources it comes from, written in \
 square brackets like [S2] or [S1][S3].
 - Never invent policies, dates, times, amounts, names or contact details.

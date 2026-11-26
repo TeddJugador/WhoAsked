@@ -27,6 +27,7 @@ knowledge = [
 dev = [
     "reportlab==5.0.1",  # tests build PDFs; never in the Lambda layer
     "pyyaml==6.0.3",  # the evaluation corpus manifest and questions
+    "hypothesis==6.170.15",  # property-based tests for the finance calculations
     "pytest>=8",
     "moto[s3,sqs,dynamodb,events]>=5.1",
     "ruff>=0.8",

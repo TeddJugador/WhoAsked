@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import re
 import statistics
 from collections.abc import Sequence
@@ -51,20 +52,32 @@ class QuestionResult:
     output_tokens: int | None = None
     cost_usd: float | None = None
     query_id: str = ""  # the API's queryId, to match the QuestionAnswered event
+    # Retrieval is recorded without a threshold; this is the deployed one, applied when
+    # scoring. Recording raw scores lets eval/calibrate.py try any threshold afterwards.
+    threshold: float = 0.0
 
     # --- per-question judgements ---------------------------------------------------
 
     @property
+    def kept(self) -> list[Retrieved]:
+        """What the API would use: retrieved chunks at or above the threshold."""
+        return [hit for hit in self.retrieved if hit.similarity >= self.threshold]
+
+    @property
+    def top_similarity(self) -> float:
+        return max((hit.similarity for hit in self.retrieved), default=0.0)
+
+    @property
     def rank(self) -> int | None:
-        """1-based rank of the first retrieved chunk from an expected document."""
-        for position, hit in enumerate(self.retrieved, start=1):
+        """1-based rank of the first kept chunk from an expected document."""
+        for position, hit in enumerate(self.kept, start=1):
             if hit.key in self.expected_documents:
                 return position
         return None
 
     @property
     def all_expected_retrieved(self) -> bool:
-        keys = {hit.key for hit in self.retrieved}
+        keys = {hit.key for hit in self.kept}
         return set(self.expected_documents) <= keys
 
     @property
@@ -90,6 +103,7 @@ class QuestionResult:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["rank"] = self.rank
+        data["top_similarity"] = round(self.top_similarity, 4)
         data["facts_found"] = self.facts_found
         data["forbidden_found"] = self.forbidden_found
         return data
@@ -146,4 +160,57 @@ def summarise(
         if latencies
         else None,
         "cost_usd_per_question": round(statistics.fmean(costs), 6) if costs else None,
+    }
+
+
+# --- threshold calibration ----------------------------------------------------------------
+
+SHOULD_REFUSE = ("unanswerable", "audience")  # nothing a parent may see answers these
+
+
+def calibrate(results: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """Pick the similarity threshold that best separates questions that should be
+    answered from those that should be refused, using each question's top raw score.
+
+    With a clean gap, the suggestion is its midpoint (the widest margin either side);
+    with an overlap, it is the threshold that gets the most questions right.
+    """
+    answer: list[float] = sorted(
+        float(r["top_similarity"]) for r in results if r["expected_outcome"] == "ANSWERED"
+    )
+    refuse: list[float] = sorted(
+        float(r["top_similarity"]) for r in results if r["category"] in SHOULD_REFUSE
+    )
+    if not answer or not refuse:
+        raise ValueError("need both answerable and refusable questions")
+
+    def correct(threshold: float) -> int:
+        return sum(s >= threshold for s in answer) + sum(s < threshold for s in refuse)
+
+    gap = answer[0] - refuse[-1]
+    if gap > 0:
+        suggested = (answer[0] + refuse[-1]) / 2
+    else:
+        candidates = sorted({*answer, *refuse})
+        cuts = [(a + b) / 2 for a, b in itertools.pairwise(candidates)]
+        best = max(correct(c) for c in cuts)
+        best_cuts = [c for c in cuts if correct(c) == best]
+        suggested = (best_cuts[0] + best_cuts[-1]) / 2  # the middle of the best range
+    return {
+        "lowest_answerable": round(answer[0], 4),
+        "highest_refusable": round(refuse[-1], 4),
+        "gap": round(gap, 4),
+        "suggested_threshold": round(suggested, 3),
+        "correct_at_suggestion": correct(suggested),
+        "questions": len(answer) + len(refuse),
+        "would_wrongly_refuse": [
+            r["id"]
+            for r in results
+            if r["expected_outcome"] == "ANSWERED" and r["top_similarity"] < suggested
+        ],
+        "would_wrongly_answer": [
+            r["id"]
+            for r in results
+            if r["category"] in SHOULD_REFUSE and r["top_similarity"] >= suggested
+        ],
     }

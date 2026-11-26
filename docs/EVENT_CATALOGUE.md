@@ -32,7 +32,7 @@ EventBridge supplies `source`, `detail-type` and `time`. Every `detail` payload 
 
 ### Naming
 
-- `source`: `school.<service>` — e.g. `school.ingestion`, `school.ledger`.
+- `source`: `school.<service>` — e.g. `school.ingestion`, `school.finance`.
 - `detail-type`: past-tense PascalCase fact — `PaymentSettled`, never `SettlePayment`. Events describe what happened; they are not commands.
 
 ### Data rules
@@ -68,16 +68,16 @@ The source of truth for students, guardians, classes and enrolments.
 }
 ```
 
-Subscribers: **ledger** opens a fee account and issues the first term invoice; **gradebook** adds the student to the class roster; **notifications** sends a welcome message to each guardian.
+Subscribers: **finance** opens a fee account (and, if the current term's billing run is already issued, adds the student to its late additions for the bursar to invoice); **gradebook** adds the student to the class roster; **notifications** sends a welcome message to each guardian.
 
 **`StudentWithdrawn`** — `studentId`, `effectiveDate`, `reasonCode` (`TRANSFER`, `GRADUATED`, `OTHER`).
-Subscribers: **ledger** issues a final statement and stops future invoices; **gradebook** archives the student's records; **notifications** stops scheduled messages.
+Subscribers: **finance** produces a final statement and stops future invoices; **gradebook** archives the student's records; **notifications** stops scheduled messages.
 
 **`ClassAssignmentChanged`** — `studentId`, `academicYear`, `fromClassCode`, `toClassCode`.
-Subscribers: **gradebook** moves the student between class rosters.
+Subscribers: **gradebook** moves the student between class rosters; **finance** uses the new class for class-level fee overrides from the next billing run.
 
 **`GuardianLinked`** — `studentId`, `guardianId`, `relationship`, `isPrimaryContact`.
-Subscribers: **notifications** registers the guardian's contact preferences; **ledger** sets the billing contact when `isPrimaryContact` is true.
+Subscribers: **notifications** registers the guardian's contact preferences; **finance** updates its guardian and family projections, and sets the billing contact when `isPrimaryContact` is true (students sharing a primary contact form a family for sibling discounts).
 
 ### File ingestion — `school.ingestion`
 
@@ -106,7 +106,7 @@ Validates and stages bulk uploads. It does not own domain data: the domain servi
 - `status` is `COMPLETED` or `COMPLETED_WITH_ERRORS`; `validRows` is always at least 1 (an import with no valid rows publishes `ImportFailed` instead).
 - `validRecordsKey` and `summaryKey` are claim-check files and expire after 45 days (see Data rules).
 
-Subscribers filter on `datasetType` in their rule pattern: **records** consumes `ROSTER`; **gradebook** consumes `MARKS`; **ledger** consumes `FEE_SCHEDULE`. **Notifications** tells the uploader the outcome. **Analytics** records import volume.
+Subscribers filter on `datasetType` in their rule pattern: **records** consumes `ROSTER`; **gradebook** consumes `MARKS`; **finance** consumes `FEE_SCHEDULE` (as a draft schedule a bursar must review and publish). **Notifications** tells the uploader the outcome. **Analytics** records import volume.
 
 **`ImportFailed`**
 
@@ -166,12 +166,37 @@ Published for the `documents` dataset (PDF, DOCX, Markdown, plain text) instead 
 
 Subscribers: **knowledge** copies and indexes the document.
 
-### Fee ledger — `school.ledger`
+### Finance — `school.finance`
 
-Double-entry ledger; verifies payment-provider webhooks (HMAC) before recording anything.
+Fees (schedules, discounts, invoices, payments) and payroll. It wraps the existing `FinancialLedgerAPI`, which serves as the cash book: only real money movements are posted there, the ledger publishes nothing itself, and no other service calls it or reads its table. Payment-provider webhooks are received and verified by the finance service (provider signature plus a server-side verification call) before anything is posted.
 
-**`InvoiceIssued`** — `invoiceId`, `accountId`, `studentId`, `amountCents`, `currency`, `dueDate`, `termCode`.
-Subscribers: **notifications** sends the invoice to the billing contact.
+All amounts are integer minor units (the `…Cents` fields) in the school's currency (`ZAR` in v1). **Salaries, deductions, payslip contents, bank details and discount reasons are never in events.**
+
+**`InvoiceIssued`**
+
+```json
+"data": {
+  "invoiceId": "INV-01JD2K7R4M",
+  "accountId": "ACC-STU-2026-00412",
+  "studentId": "STU-2026-00412",
+  "termCode": "2027-T1",
+  "billingRunId": "BRUN-01JD2H9X0C",
+  "grossCents": 1450000,
+  "discountCents": 145000,
+  "amountCents": 1305000,
+  "currency": "ZAR",
+  "dueDate": "2027-02-14"
+}
+```
+
+- `amountCents` is the net amount due (gross minus discounts), kept under this name for compatibility.
+- `discountCents` is the total only. Which discounts applied (sibling, staff child, bursary) is never published: it reveals family composition and employment.
+- `billingRunId` is `null` for an invoice issued outside a billing run (e.g. a late addition issued individually).
+
+Subscribers: **notifications** sends the invoice to the billing contact; **analytics** tracks billed amounts.
+
+**`CreditNoteIssued`** — `creditNoteId`, `invoiceId`, `accountId`, `studentId`, `amountCents`, `currency`.
+A correction to an issued invoice (invoices are never edited). Subscribers: **notifications** tells the billing contact; **analytics**.
 
 **`PaymentSettled`**
 
@@ -182,19 +207,37 @@ Subscribers: **notifications** sends the invoice to the billing contact.
   "studentId": "STU-2026-00412",
   "amountCents": 125000,
   "currency": "ZAR",
+  "method": "PAYSTACK",
   "provider": "PAYSTACK",
   "providerReference": "T685312322670591",
   "balanceAfterCents": 0
 }
 ```
 
+- `method` is `PAYSTACK`, `CASH`, `BANK_DEPOSIT`, `MOBILE_MONEY` or `SALARY_DEDUCTION`.
+- `provider` and `providerReference` are set for online payments only; otherwise `null`. Manual payments' external references stay in the finance service.
+- For `SALARY_DEDUCTION`, the event does not identify the staff member whose salary paid it.
+- Published once the payment is posted to the ledger (where cash moved) and allocated to invoices.
+
 Subscribers: **notifications** sends a receipt; **analytics** updates collections data.
 
 **`PaymentFailed`** — `paymentId`, `accountId`, `studentId`, `amountCents`, `currency`, `provider`, `failureCode`.
-Subscribers: **notifications** asks the billing contact to retry.
+Subscribers: **notifications** asks the billing contact to retry; **analytics**.
 
 **`InvoiceOverdue`** — `invoiceId`, `accountId`, `studentId`, `outstandingCents`, `currency`, `daysOverdue`.
-Produced by a daily EventBridge Scheduler job inside the ledger. Subscribers: **notifications** sends a reminder at 7, 14 and 30 days; **analytics** tracks arrears.
+Produced by a daily EventBridge Scheduler job inside finance, **only on the configured reminder days** (default 7, 14 and 30 days past due), once per invoice per threshold. Subscribers: **notifications** sends a reminder; **analytics** tracks arrears.
+
+**`PayrollRunApproved`** — `runId`, `period` (`YYYY-MM`), `staffCount`, `approvedBy`.
+A `finance_approver` (never the person who submitted the run) approved a payroll run; its payslips are now frozen. No amounts. Subscribers: **analytics**.
+
+**`PayslipsPublished`** — `runId`, `period`, `staffIds[]`.
+The run is paid (recorded as paid outside the system by default, or paid out through a provider when that mode is enabled) and each staff member can view their payslip through the finance API. No amounts. Subscribers: **notifications** tells each staff member their payslip is available.
+
+**`PayoutFailed`** — `runId`, `staffId`, `failureCode`.
+Only in the optional automated-payout mode: one staff member's transfer failed and needs manual handling. Never retried automatically. Subscribers: **notifications** alerts the finance roles only (not the staff member automatically); **analytics**.
+
+**`LedgerPostingRejected`** — `postingId`, `reasonCode` (`INSUFFICIENT_FUNDS`, `VALIDATION_FAILED`, `SIGNATURE_REJECTED`).
+The ledger refused a cash posting (e.g. a record-only salary payment while the recorded bank balance is too low). Operations are alerted by the finance service's own alarms. Subscribers: **analytics**.
 
 ### Gradebook — `school.gradebook`
 
@@ -270,11 +313,11 @@ Subscribers: **analytics** (delivery rates). Optional for v1.
 
 Rows are events, columns are consuming services.
 
-| Event | Records | Ledger | Gradebook | Knowledge | Notifications | Analytics |
+| Event | Records | Finance | Gradebook | Knowledge | Notifications | Analytics |
 |---|:-:|:-:|:-:|:-:|:-:|:-:|
 | StudentEnrolled | | ✓ | ✓ | | ✓ | ✓ |
 | StudentWithdrawn | | ✓ | ✓ | | ✓ | ✓ |
-| ClassAssignmentChanged | | | ✓ | | | |
+| ClassAssignmentChanged | | ✓ | ✓ | | | |
 | GuardianLinked | | ✓ | | | ✓ | |
 | ImportCompleted (ROSTER) | ✓ | | | | ✓ | ✓ |
 | ImportCompleted (MARKS) | | | ✓ | | ✓ | ✓ |
@@ -287,9 +330,14 @@ Rows are events, columns are consuming services.
 | QuestionAnswered | | | | | | ✓ |
 | AnswerFeedbackGiven | | | | | | ✓ |
 | InvoiceIssued | | | | | ✓ | ✓ |
+| CreditNoteIssued | | | | | ✓ | ✓ |
 | PaymentSettled | | | | | ✓ | ✓ |
-| PaymentFailed | | | | | ✓ | |
+| PaymentFailed | | | | | ✓ | ✓ |
 | InvoiceOverdue | | | | | ✓ | ✓ |
+| PayrollRunApproved | | | | | | ✓ |
+| PayslipsPublished | | | | | ✓ | |
+| PayoutFailed | | | | | ✓ | ✓ |
+| LedgerPostingRejected | | | | | | ✓ |
 | MarksRecorded | | | | | | ✓ |
 | ReportCardsPublished | | | | | ✓ | |
 | FeedbackDraftsReady | | | | | ✓ | |
@@ -302,9 +350,11 @@ Analytics can subscribe with a single catch-all rule (`source` prefix `school.`)
 
 **Term marks upload.** Teacher uploads `raw/marks/SCH-001/term4.csv` → ingestion validates and writes `valid.jsonl` → `ImportCompleted (MARKS)` → gradebook loads marks and emits `MarksRecorded` → notifications emails the teacher the import summary.
 
-**New learner joins.** Admin uploads a roster file → `ImportCompleted (ROSTER)` → records creates students and emits `StudentEnrolled` per student → ledger opens accounts and emits `InvoiceIssued` → notifications emails guardians.
+**New learner joins.** Admin uploads a roster file → `ImportCompleted (ROSTER)` → records creates students and emits `StudentEnrolled` per student → finance opens fee accounts; at the term's billing run it computes each student's fees and discounts and emits `InvoiceIssued` → notifications emails guardians.
 
-**Fee payment.** Paystack webhook hits the ledger API → HMAC verified, double-entry posted → `PaymentSettled` → notifications sends the receipt; the ledger's CDC stream archives the audit log to S3 as Parquet.
+**Fee payment.** Parent starts a payment in the portal → Paystack webhook hits the finance service → signature verified and the transaction confirmed with Paystack's verify API → finance posts the cash movement to the ledger (idempotent on the posting ID) and allocates the payment to the oldest open invoice → `PaymentSettled` → notifications sends the receipt; the ledger's CDC stream archives the cash record to S3 as Parquet.
+
+**Monthly payroll (record-only, the default).** Bursar drafts the run → finance calculates payslips from pay profiles and the school's configured deduction rules → bursar submits → a different user approves → `PayrollRunApproved` → the school pays staff through its bank as usual and the bursar records the run as paid → finance posts each net payment to the ledger and records any salary-deduction fee payments → `PayslipsPublished` → notifications tells each staff member their payslip is ready.
 
 **New school policy.** Admin uploads `raw/documents/SCH-001/policies/code_of_conduct.pdf` with title and audience metadata → ingestion validates and stages it → `DocumentAccepted` → knowledge copies the staged source into its own storage, then extracts, chunks, embeds and writes vectors, then deletes the previous version's vectors → `DocumentIndexed` → notifications tells the admin it is live. A parent then asks "What happens if my child is late three times?" → the answer cites the policy and page; `QuestionAnswered` goes to analytics.
 

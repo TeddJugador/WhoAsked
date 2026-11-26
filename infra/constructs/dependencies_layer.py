@@ -14,7 +14,7 @@ from aws_cdk import aws_lambda as lambda_
 from constructs import Construct
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PYTHON_VERSION = (PROJECT_ROOT / ".lambda-python-version").read_text().strip()
+PYTHON_VERSION = (PROJECT_ROOT / ".lambda-python-version").read_text(encoding="utf-8").strip()
 
 # Python 3.14 is the newest runtime that is GA on Lambda *and* supported by Powertools
 # at build time (Lambda's python3.15 is a public preview and Powertools stops at 3.14).

@@ -25,7 +25,8 @@ COLUMNS = [
 
 def table() -> str:
     reports = [
-        json.loads(p.read_text()) for p in sorted((ROOT / "eval" / "results").glob("*.json"))
+        json.loads(p.read_text(encoding="utf-8"))
+        for p in sorted((ROOT / "eval" / "results").glob("*.json"))
     ]
     if not reports:
         return "_No evaluation runs yet: see `eval/run_eval.py`._"
@@ -47,9 +48,9 @@ def table() -> str:
 
 
 def update_readme(readme: Path = ROOT / "README.md") -> None:
-    text = readme.read_text()
+    text = readme.read_text(encoding="utf-8")
     start, end = text.index(START) + len(START), text.index(END)
-    readme.write_text(text[:start] + "\n" + table() + "\n" + text[end:])
+    readme.write_text(text[:start] + "\n" + table() + "\n" + text[end:], encoding="utf-8")
 
 
 if __name__ == "__main__":

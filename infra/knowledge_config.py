@@ -42,6 +42,10 @@ class KnowledgeConfig:
     generation_thinking: str
     generation_effort: str  # Claude output_config.effort; ignored for Gemini
     cors_allowed_origins: tuple[str, ...]
+    # Sources scoring below this cosine similarity are dropped; with none left, the API
+    # answers without calling the model. Calibrate with eval/calibrate.py: it depends on
+    # the embedding model and the corpus.
+    similarity_threshold: float = 0.35
 
     @property
     def index_name(self) -> str:
@@ -72,11 +76,17 @@ class KnowledgeConfig:
             generation_thinking=str(node.try_get_context("generationThinking") or ""),
             generation_effort=str(node.try_get_context("generationEffort") or ""),
             cors_allowed_origins=tuple(get("corsAllowedOrigins")),
+            # Default only when absent: "or 0.35" would quietly turn 0 into 0.35.
+            similarity_threshold=float(
+                0.35 if (raw := node.try_get_context("similarityThreshold")) is None else raw
+            ),
         )
         config.validate()
         return config
 
     def validate(self) -> None:
+        if not 0 < self.similarity_threshold < 1:
+            raise KnowledgeConfigError("similarityThreshold must be between 0 and 1")
         if self.stage not in STAGES:
             raise KnowledgeConfigError(f"stage must be one of {STAGES}")
         if self.embedding_provider not in EMBEDDING_PROVIDERS:

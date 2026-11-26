@@ -14,6 +14,8 @@ from infra.constructs.dependencies_layer import (
     DEFAULT_KNOWLEDGE_LAYER_ASSET_PATH,
     DEFAULT_LAYER_ASSET_PATH,
 )
+from infra.finance_config import FinanceConfig
+from infra.finance_stack import FinanceStack
 from infra.ingestion_stack import IngestionStack
 from infra.knowledge_config import KnowledgeConfig
 from infra.knowledge_stack import KnowledgeStack
@@ -25,6 +27,7 @@ class Stacks:
     shared: SharedStack
     ingestion: IngestionStack
     knowledge: KnowledgeStack
+    finance: FinanceStack
 
 
 def build_stacks(
@@ -41,6 +44,7 @@ def build_stacks(
     # Optional: cdk deploy --all -c alertEmail=you@example.com
     alert_email = app.node.try_get_context("alertEmail")
     knowledge_config = KnowledgeConfig.from_node(app.node)
+    finance_config = FinanceConfig.from_node(app.node)
     shared = SharedStack(
         app,
         "SchoolSharedStack",
@@ -71,13 +75,24 @@ def build_stacks(
     # The knowledge stack reads the ingestion bucket by name (no cross-stack import),
     # so the ordering is explicit.
     knowledge.add_stack_dependency(ingestion)
+    finance = FinanceStack(
+        app,
+        "SchoolFinanceStack",
+        env=env,
+        config=finance_config,
+        event_bus=shared.event_bus,
+        ops_alerts_topic=shared.ops_alerts_topic,
+        user_pool=shared.user_pool,
+    )
+    # Reads the ingestion bucket by name (processed/fee_schedule/*), like the knowledge stack.
+    finance.add_stack_dependency(ingestion)
     # cdk-nag v3 runs as a CDK policy-validation plugin: any unacknowledged finding
     # fails synthesis. Acknowledgements are also written to template metadata
     # (cdk_nag.rules_to_suppress) so they're auditable and testable.
     cdk.Validations.of(app).add_plugins(
         AwsSolutionsChecks(app, verbose=True, write_suppressions_to_cloud_formation=True)
     )
-    return Stacks(shared=shared, ingestion=ingestion, knowledge=knowledge)
+    return Stacks(shared=shared, ingestion=ingestion, knowledge=knowledge, finance=finance)
 
 
 if __name__ == "__main__":

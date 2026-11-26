@@ -6,7 +6,15 @@ from aws_cdk import Acknowledgment, Duration, RemovalPolicy, Validations
 from aws_cdk import aws_cognito as cognito
 from constructs import Construct
 
-GROUPS = ("admin", "staff", "parent")
+GROUPS = ("admin", "staff", "parent", "bursar", "finance_approver")
+# bursar prepares (fee schedules, billing runs, manual payments, payroll drafts);
+# finance_approver approves (payroll runs, large adjustments, payout-mode changes). One
+# user may hold both, but the finance service never lets anyone approve their own
+# submission: it compares the submitter's and approver's sub claims, not groups.
+GROUP_DESCRIPTIONS = {
+    "bursar": "Prepares fee schedules, billing runs, manual payments and payroll drafts",
+    "finance_approver": "Approves payroll runs, large adjustments and payout-mode changes",
+}
 SCHOOL_ID_ATTRIBUTE = "school_id"  # read as custom:school_id
 LOCAL_DEV_CALLBACK = "http://localhost:3000/callback"
 
@@ -65,7 +73,7 @@ class UserDirectory(Construct):
                 f"{name.capitalize()}Group",
                 user_pool_id=self.user_pool.user_pool_id,
                 group_name=name,
-                description=f"School {name} users",
+                description=GROUP_DESCRIPTIONS.get(name, f"School {name} users"),
             )
             for name in GROUPS
         }

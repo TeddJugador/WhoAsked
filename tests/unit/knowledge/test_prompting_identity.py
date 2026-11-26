@@ -39,6 +39,8 @@ def test_injection_notice_and_rules_are_in_the_system_prompt() -> None:
     assert "[S2]" in SYSTEM_PROMPT  # citation format
     assert "200 words" in SYSTEM_PROMPT
     assert "Never invent" in SYSTEM_PROMPT
+    # A refusal must not cite sources (evaluation run 1 found "not in the documents [S1]...[S6]").
+    assert "don't cite any source in that case" in SYSTEM_PROMPT
 
 
 def test_a_source_cannot_break_out_of_its_tag() -> None:

@@ -62,8 +62,14 @@ def outputs(stack: str) -> dict[str, str]:
     return {o["OutputKey"]: o["OutputValue"] for o in description.get("Outputs", [])}
 
 
+def deployed_threshold() -> float:
+    context = json.loads((ROOT / "cdk.json").read_text(encoding="utf-8"))["context"]
+    raw = context.get("similarityThreshold")
+    return 0.35 if raw is None else float(raw)
+
+
 def provider_settings() -> ProviderSettings:
-    context = json.loads((ROOT / "cdk.json").read_text())["context"]
+    context = json.loads((ROOT / "cdk.json").read_text(encoding="utf-8"))["context"]
     return ProviderSettings.from_env(
         {
             "EMBEDDING_PROVIDER": context["embeddingProvider"],
@@ -187,8 +193,8 @@ def collect_events(capture: EventCapture, query_ids: set[str]) -> dict[str, dict
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     manifest = load_manifest()
-    questions = yaml.safe_load((EVAL_DIR / "questions.yaml").read_text())
-    pricing = yaml.safe_load((EVAL_DIR / "pricing.yaml").read_text())
+    questions = yaml.safe_load((EVAL_DIR / "questions.yaml").read_text(encoding="utf-8"))
+    pricing = yaml.safe_load((EVAL_DIR / "pricing.yaml").read_text(encoding="utf-8"))
     shared, ingestion, knowledge = (
         outputs("SchoolSharedStack"),
         outputs("SchoolIngestionStack"),
@@ -215,6 +221,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             embedding_model_id=settings.embedding_model_id,
             generation_provider=settings.generation_provider,
             generation_model=settings.generation_model,
+            similarity_threshold=0.0,  # record raw scores; the deployed one applies in scoring
         ),
         registry=registry,
         store=store,
@@ -263,6 +270,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "thinking": settings.generation_thinking,
             "index": index_name,
             "top_k": args.top_k,
+            "threshold": args.threshold,
         },
         "pricing_checked": str(pricing.get("checked")),
         "summary": summary,
@@ -295,6 +303,7 @@ def ask_all(
             expected_outcome=q.get("expected_outcome"),
             key_facts=list(q.get("key_facts", [])),
             must_not_contain=list(dict.fromkeys([*q.get("must_not_contain", []), *injection])),
+            threshold=args.threshold,
         )
         caller = Caller(
             user_id=f"eval-{q['role']}", school_id=manifest.school_id, role=Role(q["role"].upper())
@@ -390,7 +399,8 @@ def markdown_report(report: dict[str, Any]) -> str:
         "",
         f"Run {report['ran_at']} against `{config['index']}`: embeddings `{config['embedding']}` "
         f"({config['embedding_dimension']} dimensions), generation `{config['generation']}` "
-        f"(thinking: {config['thinking'] or 'default'}), top-k {config['top_k']}. "
+        f"(thinking: {config['thinking'] or 'default'}), top-k {config['top_k']}, "
+        f"similarity threshold {config.get('threshold', 0.35)}. "
         f"Prices checked {report['pricing_checked']}.",
         "",
         "| Metric | Value |",
@@ -403,13 +413,15 @@ def markdown_report(report: dict[str, Any]) -> str:
         "",
         "## Per question",
         "",
-        "| ID | Category | Role | Outcome | Rank | Key facts | Forbidden text | Latency (ms) |",
-        "|---|---|---|---|---|---|---|---|",
+        "| ID | Category | Role | Outcome | Top score | Rank | Key facts | Forbidden text "
+        "| Latency (ms) |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for r in report["results"]:
         lines.append(
             f"| {r['id']} | {r['category']} | {r['role']} | {r['outcome'] or r['status']} | "
-            f"{r['rank'] or '-'} | {'yes' if r['facts_found'] else 'no'} | "
+            f"{r.get('top_similarity', 0):.3f} | {r['rank'] or '-'} | "
+            f"{'yes' if r['facts_found'] else 'no'} | "
             f"{', '.join(r['forbidden_found']) or '-'} | {r['latency_ms']} |"
         )
     failures = [
@@ -440,6 +452,12 @@ def main() -> None:
     )
     parser.add_argument("--label", help="name for this configuration, e.g. 'Gemini + Gemini'")
     parser.add_argument("--top-k", type=int, default=6)
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="score retrieval at this threshold (default: similarityThreshold in cdk.json)",
+    )
     parser.add_argument("--delay", type=float, default=2.0, help="seconds between questions")
     parser.add_argument("--skip-upload", action="store_true", help="corpus already uploaded")
     parser.add_argument("--update-readme", action="store_true", help="refresh the README table")
@@ -451,11 +469,13 @@ def main() -> None:
         return
     if not args.label:
         parser.error("--label is required")
+    if args.threshold is None:
+        args.threshold = deployed_threshold()
     report = run(args)
     RESULTS_DIR.mkdir(exist_ok=True)
     base = RESULTS_DIR / slug(args.label)
-    base.with_suffix(".json").write_text(json.dumps(report, indent=2) + "\n")
-    base.with_suffix(".md").write_text(markdown_report(report))
+    base.with_suffix(".json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    base.with_suffix(".md").write_text(markdown_report(report), encoding="utf-8")
     print(f"\nWrote {base.with_suffix('.md').relative_to(ROOT)}")
     for key, label in METRIC_LABELS.items():
         if key in report["summary"]:

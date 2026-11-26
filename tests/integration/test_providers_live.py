@@ -30,7 +30,7 @@ from knowledge.providers.secrets import MissingApiKeyError, load_api_key
 pytestmark = pytest.mark.integration
 
 CONTEXT: dict[str, Any] = json.loads(
-    (Path(__file__).resolve().parents[2] / "cdk.json").read_text()
+    (Path(__file__).resolve().parents[2] / "cdk.json").read_text(encoding="utf-8")
 )["context"]
 
 

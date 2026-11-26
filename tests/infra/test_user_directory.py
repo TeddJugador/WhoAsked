@@ -45,10 +45,12 @@ def test_school_id_attribute_is_immutable(synthesized: Synthesized) -> None:
     assert attribute["AttributeDataType"] == "String"
 
 
-def test_three_groups(synthesized: Synthesized) -> None:
+def test_five_groups(synthesized: Synthesized) -> None:
     groups = resources_of_type(synthesized.shared_json, "AWS::Cognito::UserPoolGroup")
     assert sorted(g["Properties"]["GroupName"] for g in groups.values()) == [
         "admin",
+        "bursar",
+        "finance_approver",
         "parent",
         "staff",
     ]

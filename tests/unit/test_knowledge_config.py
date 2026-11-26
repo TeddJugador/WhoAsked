@@ -37,6 +37,8 @@ def test_defaults_from_cdk_json() -> None:
         ({"embeddingProvider": "voyage", "embeddingDimension": 768}, "Voyage embeddingDimension"),
         ({"embeddingDimension": 64}, "Gemini embeddingDimension"),
         ({"generationEffort": "extreme"}, "generationEffort"),
+        ({"similarityThreshold": 0}, "similarityThreshold"),
+        ({"similarityThreshold": 1.2}, "similarityThreshold"),
     ],
 )
 def test_invalid_config_is_rejected(overrides: dict[str, Any], message: str) -> None:

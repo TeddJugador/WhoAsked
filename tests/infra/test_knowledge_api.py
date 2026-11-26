@@ -138,3 +138,8 @@ def test_gemini_for_both_needs_only_one_secret(synth: SynthFn) -> None:
 def test_outputs_for_clients_and_scripts(synthesized: Synthesized) -> None:
     assert "ApiUrl" in synthesized.knowledge_json["Outputs"]
     assert {"UserPoolId", "WebClientId", "TestClientId"} <= set(synthesized.shared_json["Outputs"])
+
+
+def test_similarity_threshold_comes_from_config(synth: SynthFn) -> None:
+    _, function = _query_function(synth(similarityThreshold=0.62)["knowledge"])
+    assert function["Properties"]["Environment"]["Variables"]["SIMILARITY_THRESHOLD"] == "0.62"

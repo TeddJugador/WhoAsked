@@ -55,7 +55,13 @@ def test_pdf_with_two_pages_keeps_shared_lines() -> None:
     document = extract(
         pdf([[f"Intro. {BODY}"], [f"More. {BODY}"]], header="School Handbook"), "pdf"
     )
-    assert sum("School Handbook" in t for t in _texts(document)) == 2
+    # Kept as content: it may be recognised as a heading, but it isn't discarded.
+    kept = [
+        b
+        for b in document.blocks
+        if "School Handbook" in b.text or "School Handbook" in b.heading_path
+    ]
+    assert len(kept) == 2
 
 
 def test_pdf_fixes_hyphenated_line_breaks() -> None:
@@ -288,3 +294,112 @@ def test_text_directly_under_the_title_has_no_heading_path() -> None:
 
     (block,) = extract(docx_bytes(build), "docx").blocks
     assert block.heading_path == ()
+
+
+# --- PDF headings ------------------------------------------------------------------------
+
+from knowledge.extraction.pdf import find_headings  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    ("lines", "expected"),
+    [
+        # A heading between sentences, at the start and mid-document.
+        (["Fees", "Fees are due on the 7th.", "Late payment", "Interest applies."], {0, 2}),
+        # Title followed directly by a section heading.
+        (["Fee Policy", "Due dates", "Fees are due on the 7th."], {0, 1}),
+        # The tail of a wrapped sentence: the previous line didn't end a sentence.
+        (
+            ["Learners must sign the late register at the", "Front Office", "Then go to class."],
+            set(),
+        ),
+        # Table rows, list items and numbers are not headings.
+        (
+            [
+                "Annual fees for 2027 are listed in the table below, by grade.",
+                "Grade R | R18 600",  # short enough to be a heading: only "|" rules it out
+                "The fees are due on the seventh day of each month.",
+            ],
+            set(),
+        ),
+        (["Bring these.", "- Navy shorts", "Done."], set()),
+        (["Totals.", "2027", "Next line."], set()),
+        # A heading needs a following sentence; a closing line isn't one.
+        (["Fees are due.", "Thank you"], set()),
+        # Too long to be a heading.
+        (
+            ["Intro.", "This line is a fairly long statement without any final full stop", "Next."],
+            set(),
+        ),
+        # Lowercase start: a continuation, not a heading.
+        (["Intro.", "and then more", "Next."], set()),
+        # Narrow columns: lines are short everywhere, so "short" is judged relative to them.
+        (
+            [
+                "Learners must sign the late",
+                "register at the front",
+                "office before class.",
+                "Go in.",
+            ],
+            set(),
+        ),
+    ],
+)
+def test_find_headings(lines: list[str], expected: set[int]) -> None:
+    assert find_headings(lines) == expected
+
+
+def test_pdf_sections_become_heading_paths() -> None:
+    document = extract(
+        pdf(
+            [
+                [
+                    "Uniform Policy",
+                    "Shoes",
+                    "Learners wear black leather school shoes every day of the week.",
+                ],
+                [
+                    "Hair",
+                    "Long hair is tied back with a navy ribbon, and hair accessories are navy.",
+                ],
+                [
+                    "Second-hand shop",
+                    "The second-hand shop in the hall opens on Wednesdays at 07:15.",
+                ],
+            ]
+        ),
+        "pdf",
+    )
+    sections = {b.heading_path: (b.page, b.text) for b in document.blocks}
+    assert sections[("Shoes",)] == (
+        1,
+        "Learners wear black leather school shoes every day of the week.",
+    )
+    assert sections[("Hair",)] == (
+        2,
+        "Long hair is tied back with a navy ribbon, and hair accessories are navy.",
+    )
+    assert sections[("Second-hand shop",)][0] == 3
+
+
+def test_pdf_heading_at_the_bottom_of_a_page() -> None:
+    document = extract(
+        pdf(
+            [
+                [
+                    "Rules",
+                    "Learners walk in the corridors and on the left of the stairs.",
+                    "Cellphones",
+                ],
+                ["Phones are handed to the class teacher at 07:45 and returned at 13:45 each day."],
+                [
+                    "Bullying",
+                    "Report bullying to the grade head within a day, in person or in writing.",
+                ],
+            ]
+        ),
+        "pdf",
+    )
+    phones = [b for b in document.blocks if b.heading_path == ("Cellphones",)]
+    assert [b.page for b in phones] == [2]
+    assert phones[0].text.startswith("Phones are handed to the class teacher")

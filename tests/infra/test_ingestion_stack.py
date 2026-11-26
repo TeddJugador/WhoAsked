@@ -243,7 +243,9 @@ def test_runtime_is_3_13_or_later() -> None:
 
 
 def test_build_script_reads_the_same_version_file() -> None:
-    script = (Path(__file__).resolve().parents[2] / "scripts" / "build_layer.sh").read_text()
+    script = (Path(__file__).resolve().parents[2] / "scripts" / "build_layer.sh").read_text(
+        encoding="utf-8"
+    )
     assert ".lambda-python-version" in script
     assert "manylinux2014_aarch64" in script
     assert "--only-binary=:all:" in script

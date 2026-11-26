@@ -56,7 +56,7 @@ class Manifest:
 
 
 def load_manifest(path: Path = CORPUS_DIR / "manifest.yaml") -> Manifest:
-    raw: dict[str, Any] = yaml.safe_load(path.read_text())
+    raw: dict[str, Any] = yaml.safe_load(path.read_text(encoding="utf-8"))
     return Manifest(
         school_id=raw["school_id"],
         upload_prefix=raw["upload_prefix"],
@@ -111,7 +111,7 @@ def build_pdf(document: CorpusDocument) -> bytes:
     from reportlab.pdfgen import canvas
 
     lines: list[tuple[str, str]] = []  # (font, text)
-    for kind, value in _blocks(document.source.read_text()):
+    for kind, value in _blocks(document.source.read_text(encoding="utf-8")):
         if kind == "title":
             lines += [("Helvetica-Bold", value), ("Helvetica", "")]
         elif kind == "heading":
@@ -148,7 +148,7 @@ def build_docx(document: CorpusDocument) -> bytes:
 
     doc = Document()
     doc.core_properties.author = SCHOOL_NAME
-    for kind, value in _blocks(document.source.read_text()):
+    for kind, value in _blocks(document.source.read_text(encoding="utf-8")):
         if kind == "title":
             doc.add_heading(value, level=0)
         elif kind == "heading":

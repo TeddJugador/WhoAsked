@@ -1,5 +1,5 @@
 {
-  "app": "python3 app.py",
+  "app": "python app.py",
   "watch": {
     "include": [
       "**"
@@ -32,6 +32,13 @@
     "generationEffort": "low",
     "corsAllowedOrigins": [
       "http://localhost:3000"
-    ]
+    ],
+        "corsAllowedOrigins": [
+      "http://localhost:3000"
+    ],
+    "financeLedgerApiUrl": "https://txto0yq6ac.execute-api.us-east-1.amazonaws.com",
+    "financeLedgerSigningSecretName": "ledger/webhook-signing-secret",
+    "financeLedgerTableName": "FinancialLedger",
+    "financePayoutProvider": null
   }
 }

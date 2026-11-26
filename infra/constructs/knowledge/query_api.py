@@ -174,7 +174,7 @@ class QueryApi(Construct):
                 "GENERATION_MODEL": config.generation_model,
                 "GENERATION_THINKING": config.generation_thinking,
                 "GENERATION_EFFORT": config.generation_effort,
-                "SIMILARITY_THRESHOLD": "0.35",
+                "SIMILARITY_THRESHOLD": str(config.similarity_threshold),
                 "POWERTOOLS_SERVICE_NAME": API_SERVICE,
                 "POWERTOOLS_METRICS_NAMESPACE": METRICS_NAMESPACE,
             },

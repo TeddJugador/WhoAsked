@@ -22,7 +22,7 @@ from knowledge.extraction import extract  # noqa: E402
 
 MANIFEST = load_manifest()
 DOCUMENTS = MANIFEST.by_key()
-SPEC = yaml.safe_load((ROOT / "eval" / "questions.yaml").read_text())
+SPEC = yaml.safe_load((ROOT / "eval" / "questions.yaml").read_text(encoding="utf-8"))
 QUESTIONS = SPEC["questions"]
 
 
@@ -207,9 +207,9 @@ def test_readme_table_is_replaced_between_markers(tmp_path: Path) -> None:
     from summarize import END, START, update_readme
 
     readme = tmp_path / "README.md"
-    readme.write_text(f"before\n{START}\nold table\n{END}\nafter\n")
+    readme.write_text(f"before\n{START}\nold table\n{END}\nafter\n", encoding="utf-8")
     update_readme(readme)
-    text = readme.read_text()
+    text = readme.read_text(encoding="utf-8")
     assert text.startswith("before\n")
     assert text.endswith("after\n")
     assert "old table" not in text
@@ -246,3 +246,95 @@ def test_no_parent_question_ever_retrieves_staff_content(kh: Any) -> None:
         retrieved += len(hits)
         assert not [h for h in hits if h.metadata["document_id"] in staff_ids], question["id"]
     assert retrieved > 0
+
+
+# --- thresholds and calibration ---------------------------------------------------------
+
+from metrics import calibrate  # noqa: E402
+
+
+def test_rank_only_counts_chunks_at_or_above_the_threshold() -> None:
+    hits = [
+        Retrieved(key="other", similarity=0.9, audience=["PARENT"]),
+        Retrieved(key="fees", similarity=0.5, audience=["PARENT"]),
+    ]
+    assert _result(retrieved=hits, threshold=0.0).rank == 2
+    assert _result(retrieved=hits, threshold=0.6).rank is None  # the expected chunk is dropped
+    assert _result(retrieved=hits, threshold=0.6).top_similarity == 0.9  # raw score kept
+
+
+def _scored(id_: str, category: str, top: float) -> dict[str, Any]:
+    answerable = category not in ("unanswerable", "audience")
+    return {
+        "id": id_,
+        "category": category,
+        "expected_outcome": "ANSWERED"
+        if answerable
+        else ("NO_RELEVANT_SOURCES" if category == "unanswerable" else None),
+        "top_similarity": top,
+    }
+
+
+def test_calibrate_with_a_clean_gap_takes_the_midpoint() -> None:
+    results = [
+        _scored("a1", "single", 0.80),
+        _scored("a2", "multi", 0.72),
+        _scored("r1", "unanswerable", 0.60),
+        _scored("r2", "audience", 0.64),
+    ]
+    calibration = calibrate(results)
+    assert calibration["gap"] == pytest.approx(0.08)
+    assert calibration["suggested_threshold"] == pytest.approx(0.68)
+    assert calibration["correct_at_suggestion"] == 4
+    assert calibration["would_wrongly_refuse"] == calibration["would_wrongly_answer"] == []
+
+
+def test_calibrate_on_evaluation_run_1() -> None:
+    """The scores from the first real run (Gemini Embedding 2, PDFs as single chunks):
+    the ranges overlap because q04's PDF chunk scored below the unanswerable questions."""
+    answered = {
+        "q01": 0.685,
+        "q02": 0.729,
+        "q03": 0.726,
+        "q04": 0.626,
+        "q05": 0.701,
+        "q06": 0.822,
+        "q07": 0.754,
+        "q08": 0.799,
+        "q09": 0.816,
+        "q10": 0.775,
+        "q11": 0.809,
+        "q12": 0.798,
+        "q13": 0.861,
+        "q14": 0.767,
+        "q15": 0.799,
+        "q16": 0.881,
+        "q17": 0.722,
+        "q18": 0.808,
+        "q19": 0.751,
+        "q20": 0.729,
+        "q21": 0.748,
+        "q22": 0.728,
+        "q31": 0.774,
+        "q32": 0.816,
+        "q33": 0.759,
+        "q34": 0.755,
+    }
+    refused = {
+        "q23": 0.639,
+        "q24": 0.674,
+        "q25": 0.666,
+        "q26": 0.658,
+        "q27": 0.648,
+        "q28": 0.636,
+        "q29": 0.659,
+        "q30": 0.656,
+    }
+    results = [_scored(k, "single", v) for k, v in answered.items()] + [
+        _scored(k, "unanswerable" if k < "q28" else "audience", v) for k, v in refused.items()
+    ]
+    calibration = calibrate(results)
+    assert calibration["gap"] < 0  # no threshold is perfect
+    assert calibration["would_wrongly_refuse"] == ["q04"]
+    assert calibration["would_wrongly_answer"] == []
+    assert 0.674 < calibration["suggested_threshold"] < 0.685

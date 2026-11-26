@@ -31,7 +31,9 @@ from tests.integration.capture import EventCapture, capture_events
 pytestmark = pytest.mark.integration
 
 SCHOOL = "SCH-999"
-CONTEXT = json.loads((Path(__file__).resolve().parents[2] / "cdk.json").read_text())["context"]
+CONTEXT = json.loads(
+    (Path(__file__).resolve().parents[2] / "cdk.json").read_text(encoding="utf-8")
+)["context"]
 # The key the deployed generator actually uses (Claude, or Gemini for both roles).
 GENERATION_SECRET = (
     "knowledge/anthropic" if CONTEXT["generationProvider"] == "CLAUDE" else "knowledge/gemini"

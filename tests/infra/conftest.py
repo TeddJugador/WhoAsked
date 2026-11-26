@@ -34,13 +34,20 @@ TEST_BASELINE: dict[str, Any] = {
     "generationModel": "claude-haiku-5-5",
     "generationThinking": "disabled",
     "generationEffort": "low",
+    "similarityThreshold": 0.35,
     "corsAllowedOrigins": ["http://localhost:3000"],
+    "financeLedgerApiUrl": "https://example123.execute-api.us-east-1.amazonaws.com",
+    "financeLedgerSigningSecretName": "ledger/webhook-signing-secret",
+    "financeLedgerTableName": "FinancialLedger",
+    "financePayoutProvider": None,
 }
 
 
 def deployed_context() -> dict[str, Any]:
     """Exactly what ``cdk synth`` uses: cdk.json's context."""
-    context: dict[str, Any] = json.loads((PROJECT_ROOT / "cdk.json").read_text())["context"]
+    context: dict[str, Any] = json.loads((PROJECT_ROOT / "cdk.json").read_text(encoding="utf-8"))[
+        "context"
+    ]
     return context
 
 
@@ -54,9 +61,11 @@ class Synthesized:
     shared: Template
     ingestion: Template
     knowledge: Template
+    finance: Template
     shared_json: dict[str, Any]
     ingestion_json: dict[str, Any]
     knowledge_json: dict[str, Any]
+    finance_json: dict[str, Any]
 
 
 @pytest.fixture(scope="session")
@@ -64,7 +73,7 @@ def fake_layer_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Stand-in for build/layer so infra tests don't need the real arm64 build."""
     root = tmp_path_factory.mktemp("layer")
     (root / "python").mkdir()
-    (root / "python" / "placeholder.txt").write_text("test layer")
+    (root / "python" / "placeholder.txt").write_text("test layer", encoding="utf-8")
     return root
 
 
@@ -92,6 +101,7 @@ def synth(fake_layer_dir: Path) -> SynthFn:
                     ("shared", stacks.shared),
                     ("ingestion", stacks.ingestion),
                     ("knowledge", stacks.knowledge),
+                    ("finance", stacks.finance),
                 )
             }
         finally:
@@ -107,9 +117,11 @@ def synthesized(synth: SynthFn) -> Iterator[Synthesized]:
         shared=Template.from_json(templates["shared"]),
         ingestion=Template.from_json(templates["ingestion"]),
         knowledge=Template.from_json(templates["knowledge"]),
+        finance=Template.from_json(templates["finance"]),
         shared_json=templates["shared"],
         ingestion_json=templates["ingestion"],
         knowledge_json=templates["knowledge"],
+        finance_json=templates["finance"],
     )
 
 
