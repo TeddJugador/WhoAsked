@@ -11,6 +11,7 @@ import aws_cdk as cdk
 from cdk_nag import AwsSolutionsChecks
 
 from infra.constructs.dependencies_layer import (
+    DEFAULT_FINANCE_LAYER_ASSET_PATH,
     DEFAULT_KNOWLEDGE_LAYER_ASSET_PATH,
     DEFAULT_LAYER_ASSET_PATH,
 )
@@ -35,6 +36,7 @@ def build_stacks(
     *,
     layer_asset_path: str | Path = DEFAULT_LAYER_ASSET_PATH,
     knowledge_layer_asset_path: str | Path = DEFAULT_KNOWLEDGE_LAYER_ASSET_PATH,
+    finance_layer_asset_path: str | Path = DEFAULT_FINANCE_LAYER_ASSET_PATH,
 ) -> Stacks:
     # Account/region come from the CLI profile; nothing is hard-coded.
     env = cdk.Environment(
@@ -83,6 +85,7 @@ def build_stacks(
         event_bus=shared.event_bus,
         ops_alerts_topic=shared.ops_alerts_topic,
         user_pool=shared.user_pool,
+        layer_asset_path=finance_layer_asset_path,
     )
     # Reads the ingestion bucket by name (processed/fee_schedule/*), like the knowledge stack.
     finance.add_stack_dependency(ingestion)

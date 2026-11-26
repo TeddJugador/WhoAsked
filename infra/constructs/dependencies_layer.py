@@ -23,6 +23,7 @@ LAMBDA_ARCHITECTURE = lambda_.Architecture.ARM_64
 
 DEFAULT_LAYER_ASSET_PATH = PROJECT_ROOT / "build" / "layer"
 DEFAULT_KNOWLEDGE_LAYER_ASSET_PATH = PROJECT_ROOT / "build" / "knowledge-layer"
+DEFAULT_FINANCE_LAYER_ASSET_PATH = PROJECT_ROOT / "build" / "finance-layer"
 
 
 class DependenciesLayer(Construct):

@@ -1,0 +1,6 @@
+# Finance service Lambda dependencies (arm64 layer; scripts/build_layer.sh finance).
+# boto3 comes with the Lambda runtime and is removed from the layer after install.
+aws-lambda-powertools[tracer]==3.40.0
+pydantic==2.14.3
+python-ulid==4.1.0
+httpx==0.28.1

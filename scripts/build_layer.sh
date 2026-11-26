@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Build the arm64 dependency layers without Docker (works on x86 laptops and CI runners).
 #
-# Usage: scripts/build_layer.sh [all|ingestion|knowledge]   (default: all)
+# Usage: scripts/build_layer.sh [all|ingestion|knowledge|finance]   (default: all)
 #   ingestion -> build/layer/python            (layer/requirements.txt)
 #   knowledge -> build/knowledge-layer/python  (layer/knowledge-requirements.txt)
+#   finance   -> build/finance-layer/python    (layer/finance-requirements.txt)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -51,12 +52,15 @@ build() {
 
 WHAT="${1:-all}"
 case "$WHAT" in
-  all|ingestion|knowledge) ;;
-  *) sed -n '2,7p' "$0"; exit 2 ;;
+  all|ingestion|knowledge|finance) ;;
+  *) sed -n '2,8p' "$0"; exit 2 ;;
 esac
 if [[ "$WHAT" == all || "$WHAT" == ingestion ]]; then
   build ingestion "$ROOT/layer/requirements.txt" "$ROOT/build/layer" pydantic_core ijson
 fi
 if [[ "$WHAT" == all || "$WHAT" == knowledge ]]; then
   build knowledge "$ROOT/layer/knowledge-requirements.txt" "$ROOT/build/knowledge-layer" pydantic_core lxml
+fi
+if [[ "$WHAT" == all || "$WHAT" == finance ]]; then
+  build finance "$ROOT/layer/finance-requirements.txt" "$ROOT/build/finance-layer" pydantic_core
 fi

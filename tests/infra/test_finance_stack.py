@@ -103,7 +103,12 @@ def test_no_role_may_change_audit_records(synthesized: Synthesized) -> None:
 
 
 def _pipe(template: dict[str, Any]) -> dict[str, Any]:
-    (pipe,) = resources_of_type(template, "AWS::Pipes::Pipe").values()
+    """The outbox pipe (the postings pipe is tested in test_finance_postings.py)."""
+    (pipe,) = [
+        p
+        for p in resources_of_type(template, "AWS::Pipes::Pipe").values()
+        if p["Properties"]["Name"] == "finance-outbox"
+    ]
     return dict(pipe)
 
 
@@ -151,7 +156,7 @@ def test_pipe_logs_its_errors_without_event_contents(synthesized: Synthesized) -
     logging = _pipe(template)["Properties"]["LogConfiguration"]
     assert logging["Level"] == "ERROR"
     assert "IncludeExecutionData" not in logging  # never the event payloads
-    log_group_id = _logical_id(template, "AWS::Logs::LogGroup", "PipeLogs")
+    log_group_id = _logical_id(template, "AWS::Logs::LogGroup", "OutboxPipeLogs")
     assert logging["CloudwatchLogsLogDestination"]["LogGroupArn"] == {
         "Fn::GetAtt": [log_group_id, "Arn"]
     }
@@ -159,13 +164,13 @@ def test_pipe_logs_its_errors_without_event_contents(synthesized: Synthesized) -
 
 def test_pipe_waits_for_its_permissions(synthesized: Synthesized) -> None:
     template = synthesized.finance_json
-    policy_id = _logical_id(template, "AWS::IAM::Policy", "PipeRoleDefaultPolicy")
+    policy_id = _logical_id(template, "AWS::IAM::Policy", "OutboxPipeRoleDefaultPolicy")
     assert policy_id in as_list(_pipe(template).get("DependsOn", []))
 
 
 def test_pipe_role(synthesized: Synthesized) -> None:
     template = synthesized.finance_json
-    role_id = _logical_id(template, "AWS::IAM::Role", "PipeRole")
+    role_id = _logical_id(template, "AWS::IAM::Role", "OutboxPipeRole")
     trust = resources_of_type(template, "AWS::IAM::Role")[role_id]["Properties"][
         "AssumeRolePolicyDocument"
     ]
@@ -266,18 +271,23 @@ def test_dlq_alarms_notify_ops(synthesized: Synthesized) -> None:
         a["Properties"]["AlarmName"]: a["Properties"]
         for a in resources_of_type(synthesized.finance_json, "AWS::CloudWatch::Alarm").values()
     }
-    assert set(alarms) == {"finance-outbox-dlq-not-empty", "finance-inbound-dlq-not-empty"}
-    for props in alarms.values():
-        assert props["Threshold"] == 0
-        assert props["AlarmActions"] == props["OKActions"]
-        assert "ImportValue" in json.dumps(props["AlarmActions"])
+    assert {
+        "finance-outbox-dlq-not-empty",
+        "finance-inbound-dlq-not-empty",
+        "finance-postings-dlq-not-empty",
+        "finance-postings-pipe-dlq-not-empty",
+    } <= set(alarms)
+    for name, props in alarms.items():
+        assert props["Threshold"] == 0, name
+        assert props["AlarmActions"] == props["OKActions"], name
+        assert "ImportValue" in json.dumps(props["AlarmActions"]), name
 
 
-def test_nothing_can_reach_the_ledger_yet(synthesized: Synthesized) -> None:
-    """Ledger access arrives with the posting worker (phase c), and only there."""
-    text = json.dumps(synthesized.finance_json)
-    assert "FinancialLedger" not in text
-    assert "ledger/webhook-signing-secret" not in text
+def test_no_finance_role_can_touch_the_ledger_table_yet(synthesized: Synthesized) -> None:
+    """Read access to the ledger's table arrives with reconciliation (phase g), only there."""
+    for policy in resources_of_type(synthesized.finance_json, "AWS::IAM::Policy").values():
+        for statement in policy["Properties"]["PolicyDocument"]["Statement"]:
+            assert "table/FinancialLedger" not in json.dumps(statement.get("Resource", ""))
 
 
 def test_payout_resources_absent_by_default(synthesized: Synthesized) -> None:
@@ -301,9 +311,17 @@ def test_outputs(synthesized: Synthesized) -> None:
         ({"financeLedgerApiUrl": "http://insecure.example.com"}, "https base URL"),
         (
             {
-                "financeLedgerApiUrl": "https://x.execute-api.us-east-1.amazonaws.com/v1/webhooks/payment"
+                "financeLedgerApiUrl": "https://abc123defg.execute-api.us-east-1.amazonaws.com/v1/webhooks/payment"
             },
             "base URL",
+        ),
+        (
+            {"financeLedgerApiUrl": "https://YOUR-API-ID.execute-api.us-east-1.amazonaws.com"},
+            "placeholder",
+        ),
+        (
+            {"financeLedgerApiUrl": "https://abc.execute-api.us-east-1.amazonaws.com"},
+            "10-character API ID",
         ),
         ({"financeLedgerSigningSecretName": "ledger/*"}, "no wildcards"),
         ({"financeLedgerTableName": "x"}, "table name"),

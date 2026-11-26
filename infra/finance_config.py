@@ -17,6 +17,11 @@ from constructs import Node
 _TABLE_NAME = re.compile(r"^[A-Za-z0-9_.-]{3,255}$")
 _SECRET_NAME = re.compile(r"^[A-Za-z0-9/_+=.@-]{1,512}$")
 _PROVIDER = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
+# API Gateway's default endpoint is
+# https://<API ID: 10 lowercase letters/digits>.execute-api.<region>.amazonaws.com
+_EXECUTE_API_HOST = re.compile(r"^([^.]+)\.execute-api\.[a-z0-9-]+\.amazonaws\.com$")
+_API_ID = re.compile(r"^[a-z0-9]{10}$")
+_PLACEHOLDERS = ("your-api-id", "your_api_id", "example", "replace", "placeholder", "changeme")
 
 
 class FinanceConfigError(ValueError):
@@ -59,6 +64,18 @@ class FinanceConfig:
             raise FinanceConfigError(
                 "financeLedgerApiUrl must be the ledger API's https base URL, without a path "
                 "to the webhook route"
+            )
+        host = self.ledger_api_url.split("://", 1)[1].split("/", 1)[0].split(":", 1)[0]
+        if any(word in host.lower() for word in _PLACEHOLDERS):
+            raise FinanceConfigError(
+                "financeLedgerApiUrl still holds a placeholder: use the URL that "
+                "`aws apigatewayv2 get-apis` prints for financial-ledger-api"
+            )
+        execute_api = _EXECUTE_API_HOST.fullmatch(host)
+        if execute_api and not _API_ID.fullmatch(execute_api.group(1)):
+            raise FinanceConfigError(
+                "financeLedgerApiUrl: an execute-api host starts with a 10-character API ID "
+                "(lowercase letters and digits)"
             )
         if self.ledger_api_url.endswith("/v1/webhooks/payment"):
             raise FinanceConfigError(

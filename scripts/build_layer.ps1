@@ -6,6 +6,7 @@ scripts/build_layer.sh, for Windows.
 .DESCRIPTION
 ingestion -> build\layer\python            (layer\requirements.txt)
 knowledge -> build\knowledge-layer\python  (layer\knowledge-requirements.txt)
+finance   -> build\finance-layer\python    (layer\finance-requirements.txt)
 
 pip downloads ready-built Linux/arm64 wheels for Lambda's Python version, so this works
 on an x86 Windows machine. Run it from the project folder with the virtual environment
@@ -16,7 +17,7 @@ active.
 .\scripts\build_layer.ps1 knowledge
 #>
 param(
-    [ValidateSet("all", "ingestion", "knowledge")]
+    [ValidateSet("all", "ingestion", "knowledge", "finance")]
     [string]$What = "all"
 )
 $ErrorActionPreference = "Stop"
@@ -84,4 +85,10 @@ if ($What -in @("all", "knowledge")) {
         -Requirements (Join-Path $Root "layer\knowledge-requirements.txt") `
         -Out (Join-Path $Root "build\knowledge-layer") `
         -Compiled @("pydantic_core", "lxml")
+}
+if ($What -in @("all", "finance")) {
+    Build-Layer -Name "finance" `
+        -Requirements (Join-Path $Root "layer\finance-requirements.txt") `
+        -Out (Join-Path $Root "build\finance-layer") `
+        -Compiled @("pydantic_core")
 }

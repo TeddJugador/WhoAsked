@@ -36,7 +36,7 @@ TEST_BASELINE: dict[str, Any] = {
     "generationEffort": "low",
     "similarityThreshold": 0.35,
     "corsAllowedOrigins": ["http://localhost:3000"],
-    "financeLedgerApiUrl": "https://example123.execute-api.us-east-1.amazonaws.com",
+    "financeLedgerApiUrl": "https://abc123defg.execute-api.us-east-1.amazonaws.com",
     "financeLedgerSigningSecretName": "ledger/webhook-signing-secret",
     "financeLedgerTableName": "FinancialLedger",
     "financePayoutProvider": None,
@@ -92,7 +92,10 @@ def synth(fake_layer_dir: Path) -> SynthFn:
         try:
             app = cdk.App(context=cdk_context(**context))
             stacks = build_stacks(
-                app, layer_asset_path=fake_layer_dir, knowledge_layer_asset_path=fake_layer_dir
+                app,
+                layer_asset_path=fake_layer_dir,
+                knowledge_layer_asset_path=fake_layer_dir,
+                finance_layer_asset_path=fake_layer_dir,
             )
             assembly = app.synth()  # raises if cdk-nag reports anything unacknowledged
             return {
