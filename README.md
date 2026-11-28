@@ -1,6 +1,6 @@
 # School ingestion and knowledge services
 
-[![CI](https://github.com/TeddJugador/FileIngestion/actions/workflows/ci.yml/badge.svg)](https://github.com/TeddJugador/FileIngestion/actions/workflows/ci.yml)
+[![CI](https://github.com/TeddJugador/WhoAsked/actions/workflows/ci.yml/badge.svg)](https://github.com/TeddJugador/WhoAsked/actions/workflows/ci.yml)
 
 Two serverless services for a multi-tenant school management system on AWS, written in
 Python with the AWS CDK: an **ingestion service** that validates and stages uploaded
